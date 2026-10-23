@@ -2,7 +2,7 @@
 
 A reproducible R Markdown workflow for binary outcome modelling in clinical data.
 
-**📄 [View the rendered report](report.html)**
+**📄 [View the rendered report](https://eugenemofeoluwa.github.io/logistic-regression-roc/report.html)**
 
 ## Overview
 This project demonstrates how to build, evaluate, and interpret a logistic regression model in R. Using the Pima Indians Diabetes dataset, we model the probability of diabetes based on clinical predictors, evaluate the model's discriminatory power using ROC curves, and produce publication-ready tables and figures.

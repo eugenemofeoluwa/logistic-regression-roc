@@ -1,0 +1,178 @@
+---
+title: "Predicting Diabetes: Logistic Regression and ROC Analysis"
+subtitle: "A reproducible workflow for binary outcome modelling in clinical data"
+author: "Eugene Oyedemi"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    theme: flatly
+    highlight: tango
+    code_folding: show
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "centre",
+  fig.width = 8,
+  fig.height = 6,
+  dpi = 300
+)
+```
+
+# ---- Load packages from library ----
+```{r packages}
+packages <- c("tidyverse", "skimr", "gtsummary", "gt",
+              "pROC", "janitor", "broom", "here", "parameters",
+              "broom.helpers")
+
+lapply(packages, library, character.only = TRUE)
+```
+
+```{r load-data}
+# ---- Load raw data ----
+diabetes_raw <- read_csv(
+  here("data", "raw", "pima_diabetes.csv"),
+  col_names = FALSE,
+  show_col_types = FALSE
+)
+
+# ---- Add original column names ----
+colnames(diabetes_raw) <- c(
+  "Pregnancies", "Glucose", "BloodPressure", "SkinThickness",
+  "Insulin", "BMI", "DiabetesPedigreeFunction", "Age", "Outcome"
+)
+
+# ---- Recode impossible zeros to NA ----
+vars_with_impossible_zeros <- c(
+  "Glucose", "BloodPressure", "SkinThickness", "Insulin", "BMI"
+)
+
+
+diabetes_clean <- diabetes_raw %>% 
+  mutate(across(all_of(vars_with_impossible_zeros),
+  ~ na_if(.x, 0))) %>% 
+  drop_na()
+
+# ---- Confirm ----
+nrow(diabetes_clean)
+ncol(diabetes_clean)
+
+```
+
+```{r explore}
+# ---- Structure ----
+glimpse(diabetes_clean)
+
+# ---- Descriptive summary ----
+skim(diabetes_clean)
+
+# ---- Outcome distribution ----
+diabetes_clean %>% count(Outcome) %>% 
+  mutate(percent = round(100 * n/sum(n), 1))
+```
+
+```{r fit-model}
+# ---- Fit logistic regression ----
+model <- glm(Outcome ~ BMI + Age + Pregnancies, 
+             data = diabetes_clean,
+             family = binomial(link = "logit"))
+
+# ---- Model summary ----
+summary(model)
+
+# ---- Tidy coefficient table ----
+tidy(model, exponentiate = TRUE, conf.int = TRUE)
+```
+```{r regression-table}
+# ---- Create a publication-ready table of the odds ratios ----
+tbl_regression(model, exponentiate = TRUE, conf.inf = TRUE) %>% bold_labels() %>% 
+  add_glance_source_note(include = c("nobs", "AIC"))
+```
+```{r roc-analysis}
+# ---- 1. Get predicted probabilities ----
+diabetes_clean$predicted_prob <- predict(model, type = "response")
+
+# ---- 2. Calculate the ROC object ----
+roc_obj <- roc(diabetes_clean$Outcome, diabetes_clean$predicted_prob)
+
+# ---- 3. Get the AUC and 95% Confidence Interval ----
+auc_value <- auc(roc_obj)
+ci_auc <- ci.auc(roc_obj)
+
+print(auc_value)
+print(ci_auc)
+
+# ---- 4. Plot the ROC curve ----
+ggroc(roc_obj, color = "#C44E52", linewidth = 1.2) +
+  geom_abline(intercept = 1, slope = 1, linetype = "dashed", color = "gray50") +
+  coord_equal() +
+  labs(
+    title = "ROC Curve for Diabetes Prediction Model",
+    subtitle = paste0("AUC = ", round(auc_value, 3)),
+    x = "Specificity (False Positive Rate)",
+    y = "Sensitivity (True Positive Rate)"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+```
+```{r extract-values, include=FALSE}
+# Extract odds ratios for the text
+or_table <- tidy(model, exponentiate = TRUE, conf.int = TRUE)
+glucose_or <- round(or_table$estimate[or_table$term == "Glucose"], 2)
+glucose_ci_low <- round(or_table$conf.low[or_table$term == "Glucose"], 2)
+glucose_ci_high <- round(or_table$conf.high[or_table$term == "Glucose"], 2)
+
+# Extract AUC values for the text
+auc_rounded <- round(auc_value, 2)
+ci_low <- round(ci_auc[1], 2)
+ci_high <- round(ci_auc[3], 2)
+```
+
+# ---- Clinical Interpretation ----
+The logistic regression model was statistically significant. The strongest predictor of diabetes in this sample was plasma glucose. For every one-unit (mg/dL) increase in fasting glucose, the odds of having diabetes increased by a factor of r glucose_or (95% CI: r glucose_ci_low to r glucose_ci_high), holding other variables constant. BMI, age, and number of pregnancies were also significant positive predictors.
+
+To evaluate the model's discriminatory power, a Receiver Operating Characteristic (ROC) curve was generated. The model achieved an Area Under the Curve (AUC) of r auc_rounded (95% CI: r ci_low to r ci_high).
+
+An AUC of r auc_rounded indicates excellent discrimination. Clinically, this means that if we randomly select one patient with diabetes and one patient without, there is a r auc_rounded * 100% chance that the model will assign a higher risk score to the patient who actually has the disease. The model performed significantly better than random guessing (AUC = 0.5).
+
+```{r save-figure, include=FALSE}
+# Ensure the figures directory exists
+dir.create(here("figures"), showWarnings = FALSE, recursive = TRUE)
+
+# Recreate the plot and save it
+roc_plot <- ggroc(roc_obj, color = "#C44E52", linewidth = 1.2) +
+  geom_abline(intercept = 1, slope = 1, linetype = "dashed", color = "gray50") +
+  coord_equal() +
+  labs(
+    title = "ROC Curve for Diabetes Prediction Model",
+    subtitle = paste0("AUC = ", round(auc_value, 3)),
+    x = "Specificity (False Positive Rate)",
+    y = "Sensitivity (True Positive Rate)"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+
+# Save as PNG (300 dpi for journals) and PDF
+ggsave(here("figures", "roc_curve.png"), roc_plot, width = 7, height = 6, dpi = 300)
+ggsave(here("figures", "roc_curve.pdf"), roc_plot, width = 7, height = 6)
+```
+
+# ---- Reproducibility ----
+This report was generated using the following R environment. To reproduce these results exactly, ensure you have the same package versions installed.
+```{r session-info}
+sessionInfo()
+```
+

@@ -14,6 +14,12 @@ output:
     df_print: paged
 ---
 
+---
+<div style="text-align: right;">
+  <img src="Eustat.png" width="120" />
+</div>
+
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
   echo = TRUE,
